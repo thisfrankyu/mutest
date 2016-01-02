@@ -54,7 +54,15 @@ func (f *File) Visit(node ast.Node) ast.Visitor {
 		switch n := n.Cond.(type) {
 		case *ast.BinaryExpr:
 			fmt.Println("COND is binaryExpr: ", n.X, n.Op, n.Y )
+			if n.Op == token.EQL {
+				fmt.Println("found == in binaryExpr")
+				fmt.Println("trying to replace with !=")
+				n.Op = token.NEQ
+			}
+			fmt.Println("result of trying to replace == with != ", n.X, n.Op, n.Y )
 		}
+		fmt.Println("IF STATEMENT AFTER: ", n.Cond)
+		fmt.Println("walking if statement body: ", n.Body)
 		ast.Walk(f, n.Body)
 		if n.Else == nil {
 			return nil
@@ -72,6 +80,13 @@ func (f *File) Visit(node ast.Node) ast.Visitor {
 	case *ast.SelectStmt:
 	case *ast.SwitchStmt:
 	case *ast.TypeSwitchStmt:
+	case *ast.AssignStmt:
+		fmt.Println("ASSIGN statement: lhs: ", n.Lhs, " Tok: ", n.Tok, " rhs: ", n.Rhs)
+	case *ast.ReturnStmt:
+		fmt.Println("Return statement: return: ", n.Results)
+	case *ast.RangeStmt:
+		fmt.Println("range statment: ", n.X)
+		fmt.Println("range body: ", n.Body)
 	}
 	return f
 }
