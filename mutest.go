@@ -7,6 +7,9 @@ import (
 	"go/token"
 	"go/parser"
 	"io/ioutil"
+	"os"
+	"go/printer"
+	"path/filepath"
 )
 
 func check(e error) {
@@ -128,6 +131,19 @@ func main() {
 		return true
 	})*/
 	ast.Walk(file, file.astFile)
-	fmt.Println(file)
+	ast.Fprint(os.Stdout, fset, file.astFile, ast.NotNilFilter)
+	printer.Fprint(os.Stdout, fset, file.astFile)
+	dir, err := os.Getwd()
+	fmt.Println(dir)
+	check(err)
+	genPath := filepath.Join(dir, "..", "generated_mutest")
+	os.Mkdir(genPath, os.ModeDir | os.ModePerm)
+	check(err)
+	genFile, err := os.Create(filepath.Join(genPath, "next_greatest_integer.go"))
+	check(err)
+	fmt.Println(file.name)
+	defer genFile.Close()
+	printer.Fprint(genFile, fset, file.astFile)
+	genFile.Sync()
 }
 
