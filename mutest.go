@@ -2,32 +2,35 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"flag"
+	"fmt"
 	"go/ast"
-	"go/token"
 	"go/parser"
+	"go/printer"
+	"go/token"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"go/printer"
 	"path/filepath"
+	"strings"
 )
 
 var nodeArray = make([]ast.Node, 0)
 var successfulMutations = make([]ast.Node, 0)
+var fset = token.NewFileSet()
 
 func check(e error) {
 	if e != nil {
 		panic(e)
 	}
 }
+
 // File is a wrapper for the state of a file used in the parser.
 // The basic parse tree walker is a method of this type.
 type File struct {
-	fset      *token.FileSet
-	name      string // Name of file.
-	astFile   *ast.File
+	fset    *token.FileSet
+	name    string // Name of file.
+	astFile *ast.File
 	//blocks    []Block
 	atomicPkg string // Package name for "sync/atomic" in this file.
 }
@@ -35,20 +38,24 @@ type File struct {
 // Mutates the node, runs the test, then un-mutates the node
 // Saves successful mutations to
 func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string) {
+	// Mutate the AST
 	beforeOp, afterOp := mutate(node)
+
 	// Create new file
 	genFile, err := os.Create(filename)
 	check(err)
 	defer genFile.Close()
+
 	// Write AST to file
 	printer.Fprint(genFile, fset, file)
 	genFile.Sync()
+
 	// Exec
 	args := []string{"test"}
 	cmd := exec.Command("go", args...)
 	output, err := cmd.CombinedOutput()
 	if err == nil {
-		fmt.Println("Mutation did not cause a failure! From: ", beforeOp, " to ", afterOp)
+		fmt.Println("Mutation did not cause a failure! From: ", beforeOp, " to ", afterOp, " pos: ", node.Pos())
 	} else if _, ok := err.(*exec.ExitError); ok {
 		lines := bytes.Split(output, []byte("\n"))
 		lastLine := lines[len(lines)-2]
@@ -58,10 +65,12 @@ func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string
 			fmt.Println("mutation tests failed as expected! From", beforeOp, " to ", afterOp)
 		}
 	} else {
-		fmt.Errorf("mutation %s failed to run tests: %s\n", "BLAH", err)
+		fmt.Errorf("mutation failed to run tests: %s\n", err)
 	}
+
 	// Un-mutate AST
-	mutate(node)
+	unmutate(node)
+
 	// Remove file so next run will be clean
 	err = os.Remove(filename)
 	check(err)
@@ -95,9 +104,13 @@ func mutate(node ast.Node) (token.Token, token.Token) {
 		}
 		afterOp = n.Op
 	case *ast.UnaryExpr:
-		fmt.Println("UNARY OP: ", n.Op)
+		n.X = &ast.UnaryExpr{OpPos: n.OpPos, Op: token.NOT, X: n.X}
 	}
 	return beforeOp, afterOp
+}
+
+func unmutate(node ast.Node) {
+	mutate(node)
 }
 
 func addSides(node ast.Expr) {
@@ -119,38 +132,31 @@ func addSides(node ast.Expr) {
 func (f *File) Visit(node ast.Node) ast.Visitor {
 	switch n := node.(type) {
 	case *ast.ForStmt:
-		fmt.Println("FOR STATEMENT: ", n.Cond)
 		switch n := n.Cond.(type) {
 		case *ast.BinaryExpr:
-			fmt.Println("COND is binaryExpr: ", n.X, n.Op, n.Y )
 			if n.Op == token.LAND || n.Op == token.LOR {
-				fmt.Println("SHOULD VISIT X AND Y")
 				addSides(n)
 			}
 			nodeArray = append(nodeArray, n)
 		case *ast.UnaryExpr:
-			fmt.Println("COND is unaryExpr: ", n.Op, n.X)
 			nodeArray = append(nodeArray, n)
 		}
 	case *ast.IfStmt:
-		fmt.Println("IF STATEMENT: ", n.Cond)
 		switch n := n.Cond.(type) {
 		case *ast.BinaryExpr:
-			fmt.Println("COND is binaryExpr: ", n.X, n.Op, n.Y )
 			if n.Op == token.LAND || n.Op == token.LOR {
-				fmt.Println("SHOULD VISIT X AND Y")
 				addSides(n)
 			}
 			nodeArray = append(nodeArray, n)
 		case *ast.UnaryExpr:
-			fmt.Println("COND is unaryExpr: ", n.Op, n.X)
-			nodeArray = append(nodeArray, n)
+			if n.Op == token.NOT {
+				nodeArray = append(nodeArray, n)
+			}
 		}
-		fmt.Println("IF STATEMENT AFTER: ", n.Cond)
-	case *ast.AssignStmt:
-		fmt.Println("ASSIGN statement: lhs: ", n.Lhs, " Tok: ", n.Tok, " rhs: ", n.Rhs)
-	case *ast.ReturnStmt:
-		fmt.Println("Return statement: return: ", n.Results)
+		/*	case *ast.AssignStmt:
+				fmt.Println("ASSIGN statement: lhs: ", n.Lhs, " Tok: ", n.Tok, " rhs: ", n.Rhs)
+			case *ast.ReturnStmt:
+				fmt.Println("Return statement: return: ", n.Results)*/
 	}
 	return f
 }
@@ -159,11 +165,17 @@ func main() {
 	codeFilePathPtr := flag.String("c", "", "The path to the code file to mutate")
 	testFilePathPtr := flag.String("t", "", "The path to the test file against which to test mutations")
 	flag.Parse()
+	codeFileParts := strings.Split(*codeFilePathPtr, "/")
+	codeFilename := codeFileParts[len(codeFileParts)-1]
+	testFileParts := strings.Split(*testFilePathPtr, "/")
+	testFilename := testFileParts[len(testFileParts)-1]
 
-	//Example of reading in a file from path pointer
+	// Read in Test File
 	dat, err := ioutil.ReadFile(*testFilePathPtr)
 	check(err)
-	fset := token.NewFileSet()
+
+	// Read in and parse code file
+
 	name := *codeFilePathPtr
 	content, err := ioutil.ReadFile(name)
 	check(err)
@@ -183,22 +195,27 @@ func main() {
 	fmt.Println("*****************************************************")
 	dir, err := os.Getwd()
 	check(err)
+	// Create a directory to test from
 	genPath := filepath.Join(dir, "..", "generated_mutest")
-	os.Mkdir(genPath, os.ModeDir | os.ModePerm)
+	os.Mkdir(genPath, os.ModeDir|os.ModePerm)
 	check(err)
-	filename := filepath.Join(genPath, "next_greatest_integer.go")
+	filename := filepath.Join(genPath, codeFilename)
 
-	genTestFile, err := os.Create(filepath.Join(genPath, "next_greatest_integer_test.go"))
+	// Copy the test file into the new directory
+	genTestFile, err := os.Create(filepath.Join(genPath, testFilename))
 	check(err)
 	defer genTestFile.Close()
-
-	err = ioutil.WriteFile("../generated_mutest/next_greatest_integer_test.go", dat, 0644)
+	err = ioutil.WriteFile(filepath.Join(genPath, testFilename), dat, 0644)
 	check(err)
+
 	err = os.Chdir(genPath)
 	check(err)
 
 	for i := range nodeArray {
 		runTest(nodeArray[i], fset, file.astFile, filename)
 	}
-}
 
+	// Remove the created directory
+	err = os.RemoveAll(genPath)
+	check(err)
+}
