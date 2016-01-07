@@ -44,6 +44,74 @@ func TestMutate(t *testing.T) {
 	}
 }
 
+func TestAddSides(t *testing.T) {
+	cases := []struct {
+		expr ast.Expr
+		want []token.Token
+	}{
+		{
+			&ast.BinaryExpr{
+				X: &ast.BinaryExpr{
+					Op: token.GTR,
+				},
+				Y: &ast.BinaryExpr{
+					Op: token.LSS,
+				},
+				Op: token.LAND,
+			},
+			[]token.Token{token.GTR, token.LSS, token.LAND},
+		},
+		{
+			&ast.BinaryExpr{
+				X: &ast.BinaryExpr{
+					Op: token.GTR,
+				},
+				Y: &ast.BinaryExpr{
+					Op: token.LSS,
+				},
+				Op: token.LOR,
+			},
+			[]token.Token{token.GTR, token.LSS, token.LOR},
+		},
+		{
+			&ast.BinaryExpr{
+				X: &ast.BinaryExpr{
+					Op: token.LOR,
+					X: &ast.BinaryExpr{
+						Op: token.GTR,
+					},
+					Y: &ast.BinaryExpr{
+						Op: token.LEQ,
+					},
+				},
+				Y: &ast.BinaryExpr{
+					Op: token.LSS,
+				},
+				Op: token.LAND,
+			},
+			[]token.Token{token.GTR, token.LEQ, token.LOR, token.LSS, token.LAND},
+		},
+	}
+	for _, c := range cases {
+		addSides(c.expr)
+		if len(nodeArray) != len(c.want) {
+			t.Errorf("addSides(%v) Did not add correct number of values to nodeArray %v --> ", c.expr, nodeArray)
+		}
+		for i := 0; i < len(nodeArray); i++ {
+			switch n := nodeArray[i].(type) {
+			case *ast.BinaryExpr:
+				if n.Op != c.want[i] {
+					t.Errorf("addSides(%v) Did not add correct values to nodeArray, GOT: %v Wanted: %v ", c.expr, n.Op, c.want)
+				}
+			default:
+				t.Errorf("addSides(%v) Did not add correct node type to nodeArray, GOT: %v Wanted: %v ", c.expr, n, c.want)
+			}
+
+		}
+		nodeArray = make([]ast.Node, 0)
+	}
+}
+
 func TestRunTest(t *testing.T) {
 	cases := []struct {
 		codeFile string
@@ -64,7 +132,6 @@ func TestRunTest(t *testing.T) {
 	}
 	for _, c := range cases {
 		output := doWork(c.codeFile, c.testFile)
-		//lines := make([]string, len(output))
 		for i := 0; i < len(output); i++ {
 			lines := bytes.Split(output[i], []byte("\n"))
 			lastLine := lines[len(lines)-2]

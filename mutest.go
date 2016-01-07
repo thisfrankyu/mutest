@@ -121,7 +121,6 @@ func addSides(node ast.Expr) {
 		if n.Op == token.LAND || n.Op == token.LOR {
 			addSides(n.X)
 			addSides(n.Y)
-			return
 		}
 		nodeArray = append(nodeArray, node)
 	case *ast.UnaryExpr:
@@ -138,8 +137,9 @@ func (f *File) Visit(node ast.Node) ast.Visitor {
 		case *ast.BinaryExpr:
 			if n.Op == token.LAND || n.Op == token.LOR {
 				addSides(n)
+			} else {
+				nodeArray = append(nodeArray, n)
 			}
-			nodeArray = append(nodeArray, n)
 		case *ast.UnaryExpr:
 			nodeArray = append(nodeArray, n)
 		}
