@@ -1,4 +1,4 @@
-package main
+package mutest
 
 import (
 	"bytes"
@@ -104,7 +104,9 @@ func mutate(node ast.Node) (token.Token, token.Token) {
 		}
 		afterOp = n.Op
 	case *ast.UnaryExpr:
+		beforeOp = n.Op
 		n.X = &ast.UnaryExpr{OpPos: n.OpPos, Op: token.NOT, X: n.X}
+		afterOp = n.Op
 	}
 	return beforeOp, afterOp
 }
