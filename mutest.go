@@ -28,16 +28,15 @@ func check(e error) {
 // File is a wrapper for the state of a file used in the parser.
 // The basic parse tree walker is a method of this type.
 type File struct {
-	fset    *token.FileSet
-	name    string // Name of file.
-	astFile *ast.File
-	//blocks    []Block
+	fset      *token.FileSet
+	name      string // Name of file.
+	astFile   *ast.File
 	atomicPkg string // Package name for "sync/atomic" in this file.
 }
 
 // Mutates the node, runs the test, then un-mutates the node
 // Saves successful mutations to
-func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string) {
+func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string) []byte {
 	// Mutate the AST
 	beforeOp, afterOp := mutate(node)
 
@@ -74,6 +73,7 @@ func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string
 	// Remove file so next run will be clean
 	err = os.Remove(filename)
 	check(err)
+	return output
 }
 
 // Mutates a given node (i.e. switches '==' to '!=')
@@ -163,22 +163,19 @@ func (f *File) Visit(node ast.Node) ast.Visitor {
 	return f
 }
 
-func main() {
-	codeFilePathPtr := flag.String("c", "", "The path to the code file to mutate")
-	testFilePathPtr := flag.String("t", "", "The path to the test file against which to test mutations")
-	flag.Parse()
-	codeFileParts := strings.Split(*codeFilePathPtr, "/")
+func doWork(codeFilePath, testFilePath string) [][]byte {
+	codeFileParts := strings.Split(codeFilePath, "/")
 	codeFilename := codeFileParts[len(codeFileParts)-1]
-	testFileParts := strings.Split(*testFilePathPtr, "/")
+	testFileParts := strings.Split(testFilePath, "/")
 	testFilename := testFileParts[len(testFileParts)-1]
 
 	// Read in Test File
-	dat, err := ioutil.ReadFile(*testFilePathPtr)
+	dat, err := ioutil.ReadFile(testFilePath)
 	check(err)
 
 	// Read in and parse code file
 
-	name := *codeFilePathPtr
+	name := codeFilePath
 	content, err := ioutil.ReadFile(name)
 	check(err)
 	parsedFile, err := parser.ParseFile(fset, name, content, 0)
@@ -213,11 +210,24 @@ func main() {
 	err = os.Chdir(genPath)
 	check(err)
 
+	output := make([][]byte, 0)
+
 	for i := range nodeArray {
-		runTest(nodeArray[i], fset, file.astFile, filename)
+		output = append(output, runTest(nodeArray[i], fset, file.astFile, filename))
 	}
 
+	err = os.Chdir("../mutest")
+	check(err)
 	// Remove the created directory
 	err = os.RemoveAll(genPath)
 	check(err)
+	nodeArray = make([]ast.Node, 0)
+	return output
+}
+
+func main() {
+	codeFilePathPtr := flag.String("c", "", "The path to the code file to mutate")
+	testFilePathPtr := flag.String("t", "", "The path to the test file against which to test mutations")
+	flag.Parse()
+	doWork(*codeFilePathPtr, *testFilePathPtr)
 }
