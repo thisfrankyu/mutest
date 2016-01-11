@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+var mutator = &SimpleMutator{}
+
 func TestMutate(t *testing.T) {
 	cases := []struct {
 		node  ast.Expr
@@ -37,7 +39,7 @@ func TestMutate(t *testing.T) {
 		}, token.NOT, token.NOT},
 	}
 	for _, c := range cases {
-		before, after := mutate(c.node)
+		before, after := mutator.Mutate(c.node)
 		if before != c.want || after != c.want2 {
 			t.Errorf("mutate(%v) -> got %v and %v, want %v and %v", c.node, before, after, c.want, c.want2)
 		}
@@ -113,6 +115,7 @@ func TestAddSides(t *testing.T) {
 }
 
 func TestRunTest(t *testing.T) {
+
 	cases := []struct {
 		codeFile string
 		testFile string
@@ -131,7 +134,7 @@ func TestRunTest(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		output := doWork(c.codeFile, c.testFile)
+		output := doWork(c.codeFile, c.testFile, mutator)
 		for i := 0; i < len(output); i++ {
 			lines := bytes.Split(output[i], []byte("\n"))
 			lastLine := lines[len(lines)-2]

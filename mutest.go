@@ -36,9 +36,9 @@ type File struct {
 
 // Mutates the node, runs the test, then un-mutates the node
 // Saves successful mutations to
-func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string) []byte {
+func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string, mutator Mutator) []byte {
 	// Mutate the AST
-	beforeOp, afterOp := mutate(node)
+	beforeOp, afterOp := mutator.Mutate(node)
 
 	// Create new file
 	genFile, err := os.Create(filename)
@@ -57,7 +57,7 @@ func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string
 		fmt.Println("Mutation did not cause a failure! From: ", beforeOp, " to ", afterOp, " pos: ", node.Pos())
 	} else if _, ok := err.(*exec.ExitError); ok {
 		lines := bytes.Split(output, []byte("\n"))
-		lastLine := lines[len(lines)-2]
+		lastLine := lines[len(lines) - 2]
 		if !bytes.HasPrefix(lastLine, []byte("FAIL")) {
 			fmt.Fprintf(os.Stderr, "mutation %s to %s tests resulted in an error: %s\n", beforeOp, afterOp, lastLine)
 		} else {
@@ -68,7 +68,7 @@ func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string
 	}
 
 	// Un-mutate AST
-	unmutate(node)
+	mutator.Unmutate(node)
 
 	// Remove file so next run will be clean
 	err = os.Remove(filename)
@@ -76,8 +76,27 @@ func runTest(node ast.Node, fset *token.FileSet, file *ast.File, filename string
 	return output
 }
 
+
+
+type Mutator interface {
+	Name() string
+	Description() string
+	Mutate(node ast.Node) (token.Token, token.Token)
+	Unmutate(node ast.Node)
+}
+
+type SimpleMutator struct {}
+
+func (*SimpleMutator) Name() string {
+	return "SimpleMutator"
+}
+
+func (*SimpleMutator) Description() string {
+	return "SimpleMutator mutates binary and negation statements"
+}
+
 // Mutates a given node (i.e. switches '==' to '!=')
-func mutate(node ast.Node) (token.Token, token.Token) {
+func (*SimpleMutator) Mutate(node ast.Node) (token.Token, token.Token) {
 	var beforeOp, afterOp token.Token
 	switch n := node.(type) {
 	case *ast.BinaryExpr:
@@ -111,8 +130,8 @@ func mutate(node ast.Node) (token.Token, token.Token) {
 	return beforeOp, afterOp
 }
 
-func unmutate(node ast.Node) {
-	mutate(node)
+func (m *SimpleMutator) Unmutate(node ast.Node) {
+	m.Mutate(node)
 }
 
 func addSides(node ast.Expr) {
@@ -155,19 +174,19 @@ func (f *File) Visit(node ast.Node) ast.Visitor {
 				nodeArray = append(nodeArray, n)
 			}
 		}
-		/*	case *ast.AssignStmt:
-				fmt.Println("ASSIGN statement: lhs: ", n.Lhs, " Tok: ", n.Tok, " rhs: ", n.Rhs)
-			case *ast.ReturnStmt:
-				fmt.Println("Return statement: return: ", n.Results)*/
+	/*	case *ast.AssignStmt:
+			fmt.Println("ASSIGN statement: lhs: ", n.Lhs, " Tok: ", n.Tok, " rhs: ", n.Rhs)
+		case *ast.ReturnStmt:
+			fmt.Println("Return statement: return: ", n.Results)*/
 	}
 	return f
 }
 
-func doWork(codeFilePath, testFilePath string) [][]byte {
+func doWork(codeFilePath, testFilePath string, mutator Mutator) [][]byte {
 	codeFileParts := strings.Split(codeFilePath, "/")
-	codeFilename := codeFileParts[len(codeFileParts)-1]
+	codeFilename := codeFileParts[len(codeFileParts) - 1]
 	testFileParts := strings.Split(testFilePath, "/")
-	testFilename := testFileParts[len(testFileParts)-1]
+	testFilename := testFileParts[len(testFileParts) - 1]
 
 	// Read in Test File
 	dat, err := ioutil.ReadFile(testFilePath)
@@ -196,7 +215,7 @@ func doWork(codeFilePath, testFilePath string) [][]byte {
 	check(err)
 	// Create a directory to test from
 	genPath := filepath.Join(dir, "..", "generated_mutest")
-	os.Mkdir(genPath, os.ModeDir|os.ModePerm)
+	os.Mkdir(genPath, os.ModeDir | os.ModePerm)
 	check(err)
 	filename := filepath.Join(genPath, codeFilename)
 
@@ -213,7 +232,7 @@ func doWork(codeFilePath, testFilePath string) [][]byte {
 	output := make([][]byte, 0)
 
 	for i := range nodeArray {
-		output = append(output, runTest(nodeArray[i], fset, file.astFile, filename))
+		output = append(output, runTest(nodeArray[i], fset, file.astFile, filename, mutator))
 	}
 
 	err = os.Chdir("../mutest")
@@ -229,5 +248,6 @@ func main() {
 	codeFilePathPtr := flag.String("c", "", "The path to the code file to mutate")
 	testFilePathPtr := flag.String("t", "", "The path to the test file against which to test mutations")
 	flag.Parse()
-	doWork(*codeFilePathPtr, *testFilePathPtr)
+	mutator := &SimpleMutator{}
+	doWork(*codeFilePathPtr, *testFilePathPtr, mutator)
 }
